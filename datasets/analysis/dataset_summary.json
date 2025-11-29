@@ -1,0 +1,24 @@
+{
+  "total_sections": 2273,
+  "total_characters": 1526447,
+  "total_words": 250253,
+  "avg_section_length": 671.5560932688078,
+  "median_section_length": 269.0,
+  "min_section_length": 1,
+  "max_section_length": 29660,
+  "std_section_length": 2332.822604901853,
+  "empty_sections": 9,
+  "very_long_sections": 81,
+  "duplicate_sections": 4,
+  "unique_top_level_sections": 85,
+  "max_section_depth": 3,
+  "conclusions": [
+    "[OK] Average section length is MODERATE - suitable for embedding",
+    "[WARN] High variability in section lengths - mixed content sizes",
+    "[OK] Only 81 sections (3.6%) are very long - acceptable",
+    "[WARN] 9 sections are empty/very short - consider filtering",
+    "[WARN] 4 sections (0.2%) have duplicate content - may want to deduplicate",
+    "[OK] Well-structured hierarchy (up to 3 levels deep)",
+    "[OK] Large dataset (250,253 words) - good for comprehensive RAG"
+  ]
+}
