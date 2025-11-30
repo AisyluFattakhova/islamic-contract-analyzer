@@ -1,0 +1,22 @@
+# Core dependencies
+pdfplumber>=0.10.0
+pandas>=2.0.0
+numpy>=1.24.0
+tqdm>=4.65.0
+
+# Embeddings & ML
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# Vector databases
+chromadb>=0.4.0
+faiss-cpu>=1.7.4  # Optional, for FAISS support
+
+# Web framework
+streamlit>=1.28.0
+
+# LLM integration
+google-generativeai>=0.3.0  # Google Gemini (default)
+openai>=1.3.0  # Optional, if using OpenAI
+anthropic>=0.7.0  # Optional, if using Anthropic
+
