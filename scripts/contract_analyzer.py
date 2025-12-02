@@ -1,9 +1,10 @@
 """
-Contract Analyzer using LLM + RAG.
+Contract Analyzer using LLM + Modular RAG.
 
 This script analyzes contracts for Shariah compliance by:
-1. Retrieving relevant Shariaa Standards using RAG
+1. Retrieving relevant Shariaa Standards using Modular RAG (router + retriever)
 2. Using LLM to generate compliance analysis
+3. Managing conversation memory for multi-turn interactions
 """
 import os
 import sys
@@ -15,132 +16,164 @@ from typing import List, Dict, Optional
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
 
-# Import RAG query functions
-# Add scripts directory to path for imports
+# Add project root to path for rag module
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# Import modular RAG components
+from rag.retriever import RAGRetriever
+from rag.router import QueryRouter
+from rag.embedder import Embedder
+from rag.vector_store import ChromaDBVectorStore, FAISSVectorStore
+
+# Import memory manager
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-try:
-    from rag_query import (
-        load_embedding_model, load_chromadb, load_faiss,
-        query_chromadb, query_faiss, detect_database_type,
-        DATASET_PATH
-    )
-except ImportError as e:
-    raise ImportError(
-        f"Could not import from rag_query.py: {e}\n"
-        f"Make sure rag_query.py exists in {SCRIPT_DIR}"
-    )
+from memory_manager import ConversationMemory, MemoryManager
 
-import pandas as pd
+# Import API utilities for best practices
+try:
+    from api_utils import retry_with_backoff, log_api_call, RateLimiter
+except ImportError:
+    # Fallback if api_utils not available
+    def retry_with_backoff(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    def log_api_call(func):
+        return func
+    class RateLimiter:
+        def __init__(self, *args, **kwargs):
+            pass
+        def wait_if_needed(self):
+            pass
 
 
 class ContractAnalyzer:
-    """Analyze contracts for Shariah compliance using RAG + LLM."""
+    """
+    Analyze contracts for Shariah compliance using Gemini + Modular RAG.
     
-    def __init__(self, llm_provider: str = "gemini", api_key: Optional[str] = None):
+    The analyzer uses a modular RAG architecture:
+    1. QueryRouter: Routes queries to appropriate retrieval strategies
+    2. RAGRetriever: Retrieves relevant standards from vector database
+    3. MemoryManager: Manages conversation history for multi-turn interactions
+    4. Gemini LLM: Generates compliance analysis
+    
+    Best Practices:
+    - Retry logic with exponential backoff for API calls
+    - Rate limiting to prevent API abuse
+    - Logging for debugging and monitoring
+    - Memory management for context-aware conversations
+    """
+    
+    def __init__(self, llm_provider: str = "gemini", api_key: Optional[str] = "AIzaSyDczUyM-esLayEqleYtHac452eUwX95asA", 
+                 session_id: Optional[str] = None, use_memory: bool = True):
         """
-        Initialize the contract analyzer.
+        Initialize the contract analyzer with modular RAG components.
         
         Args:
-            llm_provider: "gemini", "openai", or "anthropic"
-            api_key: API key for LLM (or set GEMINI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY env var)
+            llm_provider: Kept for backward compatibility (always uses Gemini)
+            api_key: Gemini API key (or set GEMINI_API_KEY env var)
+            session_id: Session ID for conversation memory (auto-generated if None)
+            use_memory: Whether to use conversation memory
         """
-        self.llm_provider = llm_provider.lower()
+        # Force Gemini as the only provider
+        self.llm_provider = "gemini"
         self.api_key = api_key or self._get_api_key()
         
-        # Load RAG components
-        print("Loading RAG system...")
-        self.db_type = detect_database_type()
-        if self.db_type is None:
-            raise FileNotFoundError(
-                "No vector database found. Run 'python scripts/setup_vector_db.py' first."
-            )
+        # Initialize memory manager
+        self.memory_manager = MemoryManager()
+        self.session_id = session_id or f"session_{os.getpid()}_{int(os.path.getmtime(__file__))}"
+        self.use_memory = use_memory
+        if use_memory:
+            self.memory = self.memory_manager.get_or_create_session(self.session_id)
+        else:
+            self.memory = None
         
-        self.model = load_embedding_model()
+        # Initialize rate limiter (Gemini free tier: ~15 requests/minute)
+        self.rate_limiter = RateLimiter(max_calls=15, time_window=60.0)
         
-        if self.db_type == "ChromaDB":
-            self.collection = load_chromadb()
-            self.index = None
-            self.mapping = None
-            self.df = None
-        else:  # FAISS
-            self.collection = None
-            self.index, self.mapping = load_faiss()
-            self.df = pd.read_csv(DATASET_PATH)
+        # Load modular RAG components
+        print("Loading Modular RAG system...")
+        try:
+            # Try ChromaDB first
+            vector_store = ChromaDBVectorStore()
+            print("✅ Using ChromaDB vector store")
+        except Exception:
+            try:
+                # Fall back to FAISS
+                vector_store = FAISSVectorStore()
+                print("✅ Using FAISS vector store")
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"No vector database found. Run 'python scripts/setup_vector_db.py' first.\n"
+                    f"Error: {e}"
+                )
         
-        print("✅ RAG system loaded")
+        # Initialize modular components
+        self.embedder = Embedder()
+        self.router = QueryRouter()
+        self.retriever = RAGRetriever(
+            embedder=self.embedder,
+            vector_store=vector_store,
+            router=self.router,
+            use_routing=True  # Enable query routing
+        )
+        
+        print("✅ Modular RAG system loaded")
     
     def _get_api_key(self) -> str:
-        """Get API key from environment variables."""
-        if self.llm_provider == "gemini":
-            key = os.getenv("GEMINI_API_KEY")
-            if not key:
-                raise ValueError(
-                    "GEMINI_API_KEY not found. Set it as environment variable or pass api_key parameter."
-                )
-            return key
-        elif self.llm_provider == "openai":
-            key = os.getenv("OPENAI_API_KEY")
-            if not key:
-                raise ValueError(
-                    "OPENAI_API_KEY not found. Set it as environment variable or pass api_key parameter."
-                )
-            return key
-        elif self.llm_provider == "anthropic":
-            key = os.getenv("ANTHROPIC_API_KEY")
-            if not key:
-                raise ValueError(
-                    "ANTHROPIC_API_KEY not found. Set it as environment variable or pass api_key parameter."
-                )
-            return key
-        else:
-            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
+        """Get API key for Gemini from environment variables."""
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise ValueError(
+                "GEMINI_API_KEY not found. Set it as environment variable or pass api_key parameter."
+            )
+        return key
     
     def retrieve_relevant_standards(self, contract_text: str, n_results: int = 5) -> List[Dict]:
         """
-        Retrieve relevant Shariaa Standards for the contract.
+        Retrieve the most relevant Shariaa Standards using Modular RAG.
+        
+        This uses the modular RAG system (router + retriever) which:
+        1. Routes the query based on type (definition, rules, prohibition, etc.)
+        2. Adjusts retrieval strategy based on query complexity
+        3. Retrieves from the full standards corpus
+        4. Returns top N most relevant sections
         
         Args:
-            contract_text: Text of the contract to analyze
-            n_results: Number of relevant standards to retrieve
+            contract_text: Contract text to analyze
+            n_results: Number of standards to retrieve (router may adjust this)
         
         Returns:
-            List of dictionaries with section info and content
+            List of relevant standards with metadata
         """
-        # Query RAG system
-        if self.db_type == "ChromaDB":
-            results = query_chromadb(
-                self.collection, contract_text, self.model, 
-                n_results=n_results, use_query_expansion=True
-            )
-        else:  # FAISS
-            results = query_faiss(
-                self.index, self.mapping, contract_text, self.model,
-                self.df, n_results=n_results, use_query_expansion=True
-            )
+        # Use modular RAG retriever (includes routing)
+        retrieved = self.retriever.retrieve(
+            query=contract_text,
+            n_results=n_results,
+            use_query_expansion=True,
+            boost_definitions=False  # Router will decide
+        )
         
         # Format results
-        relevant_standards = []
-        for i, (doc, metadata, distance) in enumerate(zip(
-            results['documents'],
-            results['metadatas'],
-            results['distances']
-        ), 1):
+        relevant_standards: List[Dict] = []
+        for i, result in enumerate(retrieved, 1):
             relevant_standards.append({
-                'rank': i,
-                'section_number': metadata.get('section_number', 'N/A'),
-                'section_path': metadata.get('section_path', 'N/A'),
-                'content': doc,
-                'relevance_score': 1 - distance,  # Convert distance to similarity
-                'content_length': metadata.get('content_length', len(doc))
+                "rank": i,
+                "section_number": result.get("section_number", "N/A"),
+                "section_path": result.get("section_path", "N/A"),
+                "content": result.get("content", ""),
+                "relevance_score": result.get("relevance_score", 0.0),
+                "content_length": result.get("content_length", 0),
             })
         
         return relevant_standards
     
     def generate_analysis(self, contract_text: str, relevant_standards: List[Dict]) -> Dict:
         """
-        Generate compliance analysis using LLM.
+        Generate compliance analysis using Gemini LLM with best practices.
         
         Args:
             contract_text: Text of the contract
@@ -149,17 +182,24 @@ class ContractAnalyzer:
         Returns:
             Dictionary with analysis results
         """
+        # Get conversation context if memory is enabled
+        conversation_context = ""
+        if self.memory and self.use_memory:
+            conversation_context = self.memory.get_context(include_metadata=False)
+            if conversation_context:
+                conversation_context = f"\n\nPREVIOUS CONVERSATION:\n{conversation_context}\n"
+        
         # Prepare context from relevant standards
         standards_context = "\n\n".join([
             f"Standard {std['section_path']} ({std['section_number']}):\n{std['content']}"
             for std in relevant_standards[:5]  # Use top 5
         ])
         
-        # Create prompt
+        # Create prompt with conversation context
         prompt = f"""You are an expert in Islamic finance and Shariah compliance. Analyze the following contract against the provided Shariaa Standards.
 
 CONTRACT TEXT:
-{contract_text[:3000]}  # Limit contract text to avoid token limits
+{contract_text[:3000]}{conversation_context}
 
 RELEVANT SHARIAA STANDARDS:
 {standards_context}
@@ -173,141 +213,198 @@ Please provide a comprehensive analysis:
 
 Format your response in clear sections with bullet points where appropriate."""
 
-        # Call LLM
-        if self.llm_provider == "gemini":
-            return self._call_gemini(prompt)
-        elif self.llm_provider == "openai":
-            return self._call_openai(prompt)
-        elif self.llm_provider == "anthropic":
-            return self._call_anthropic(prompt)
-        else:
-            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
+        # Call LLM with retry and rate limiting (best practices)
+        return self._call_gemini(prompt)
     
+    def answer_question(self, question: str, n_standards: int = 5) -> Dict:
+        """
+        Answer a question about Shariaa Standards using RAG + Gemini.
+        
+        This is Scenario 1: Simple questions like "What is Murabahah?"
+        The router will classify this as DEFINITION and optimize retrieval accordingly.
+        
+        Args:
+            question: User's question about Shariaa Standards
+            n_standards: Number of relevant standards to retrieve
+        
+        Returns:
+            Dictionary with answer and relevant standards
+        """
+        print(f"\nAnswering question: {question}")
+        
+        # Step 1: Retrieve relevant standards (router will classify as DEFINITION, etc.)
+        print("Step 1: Retrieving relevant Shariaa Standards using Modular RAG...")
+        relevant_standards = self.retrieve_relevant_standards(
+            question, n_results=n_standards
+        )
+        print(f"✅ Found {len(relevant_standards)} relevant standards")
+        
+        # Step 2: Generate answer using Gemini
+        print("Step 2: Generating answer with Gemini...")
+        answer = self._generate_answer(question, relevant_standards)
+        print("✅ Answer complete")
+        
+        # Step 3: Update conversation memory if enabled
+        if self.memory and self.use_memory:
+            self.memory.add_turn(
+                query=question,
+                response=answer['answer'],
+                metadata={
+                    'standards_found': len(relevant_standards),
+                    'standards': [std['section_path'] for std in relevant_standards],
+                    'query_type': 'question'
+                }
+            )
+        
+        return {
+            'question': question,
+            'relevant_standards': relevant_standards,
+            'answer': answer,
+            'summary': {
+                'standards_found': len(relevant_standards),
+                'llm_provider': answer['provider'],
+                'llm_model': answer['model'],
+                'session_id': self.session_id if self.use_memory else None,
+            },
+        }
+    
+    def _generate_answer(self, question: str, relevant_standards: List[Dict]) -> Dict:
+        """
+        Generate answer to question using Gemini LLM.
+        
+        Args:
+            question: User's question
+            relevant_standards: List of relevant standards from RAG
+        
+        Returns:
+            Dictionary with answer results
+        """
+        # Get conversation context if memory is enabled
+        conversation_context = ""
+        if self.memory and self.use_memory:
+            conversation_context = self.memory.get_context(include_metadata=False)
+            if conversation_context:
+                conversation_context = f"\n\nPREVIOUS CONVERSATION:\n{conversation_context}\n"
+        
+        # Prepare context from relevant standards
+        standards_context = "\n\n".join([
+            f"Standard {std['section_path']} ({std['section_number']}):\n{std['content']}"
+            for std in relevant_standards
+        ])
+        
+        # Create prompt for answering questions
+        prompt = f"""You are an expert in Islamic finance and Shariah compliance. Answer the following question based on the provided Shariaa Standards.
+
+QUESTION:
+{question}{conversation_context}
+
+RELEVANT SHARIAA STANDARDS:
+{standards_context}
+
+Please provide a clear, comprehensive answer:
+1. **Direct Answer**: Answer the question directly based on the standards
+2. **Key Points**: Highlight the most important aspects
+3. **Standard References**: Reference the specific standards that support your answer
+4. **Additional Context**: Provide any relevant additional information if helpful
+
+Format your response in clear sections with bullet points where appropriate."""
+
+        # Call LLM with retry and rate limiting
+        result = self._call_gemini(prompt)
+        
+        # Rename 'analysis' to 'answer' for consistency
+        return {
+            'answer': result['analysis'],
+            'model': result['model'],
+            'provider': result['provider'],
+            'tokens_used': result.get('tokens_used')
+        }
+    
+    @retry_with_backoff(max_retries=3, initial_delay=1.0, backoff_factor=2.0)
+    @log_api_call
     def _call_gemini(self, prompt: str) -> Dict:
-        """Call Google Gemini API."""
+        """
+        Call Google Gemini API with best practices:
+        - Retry with exponential backoff
+        - Rate limiting
+        - Logging
+        - Error handling
+        """
         try:
             from google import genai
-            from google.genai import types
         except ImportError:
             raise ImportError("Google Generative AI package not installed. Run: pip install google-generativeai")
         
+        # Rate limiting (best practice)
+        self.rate_limiter.wait_if_needed()
+        
         # Configure Gemini
-        Client=genai.Client(api_key="AIzaSyDMZllwjXTgnhu8aJv1yacULF5NRu-_Yvo")
+        Client = genai.Client(api_key=self.api_key)
         
-        try:
-            # Use Gemini Pro model (free tier available)
-            model = 'gemini-2.5-flash'
-            
-            # Generate response
-            response = Client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            
-            analysis_text = response.text
-            
-            return {
-                'analysis': analysis_text,
-                'model': 'gemini-2.5-flash',
-                'provider': 'gemini',
-                'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
-            }
-        except Exception as e:
-            raise RuntimeError(f"Gemini API error: {e}")
-    
-    def _call_openai(self, prompt: str) -> Dict:
-        """Call OpenAI API."""
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("OpenAI package not installed. Run: pip install openai")
+        # Use Gemini model
+        model = 'gemini-2.5-flash'
         
-        client = OpenAI(api_key=self.api_key)
+        # Generate response
+        response = Client.models.generate_content(
+            model=model,
+            contents=prompt
+        )
         
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",  # Fast and cost-effective, can use "gpt-4" for better quality
-                messages=[
-                    {"role": "system", "content": "You are an expert in Islamic finance and Shariah compliance analysis."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,  # Lower temperature for more consistent analysis
-                max_tokens=1500
-            )
-            
-            analysis_text = response.choices[0].message.content
-            
-            return {
-                'analysis': analysis_text,
-                'model': 'gpt-4o-mini',
-                'provider': 'openai',
-                'tokens_used': response.usage.total_tokens if hasattr(response, 'usage') else None
-            }
-        except Exception as e:
-            raise RuntimeError(f"OpenAI API error: {e}")
-    
-    def _call_anthropic(self, prompt: str) -> Dict:
-        """Call Anthropic API."""
-        try:
-            from anthropic import Anthropic
-        except ImportError:
-            raise ImportError("Anthropic package not installed. Run: pip install anthropic")
+        analysis_text = response.text
         
-        client = Anthropic(api_key=self.api_key)
-        
-        try:
-            response = client.messages.create(
-                model="claude-3-haiku-20240307",  # Fast and cost-effective
-                max_tokens=1500,
-                temperature=0.3,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            analysis_text = response.content[0].text
-            
-            return {
-                'analysis': analysis_text,
-                'model': 'claude-3-haiku-20240307',
-                'provider': 'anthropic',
-                'tokens_used': response.usage.input_tokens + response.usage.output_tokens if hasattr(response, 'usage') else None
-            }
-        except Exception as e:
-            raise RuntimeError(f"Anthropic API error: {e}")
+        return {
+            'analysis': analysis_text,
+            'model': 'gemini-2.5-flash',
+            'provider': 'gemini',
+            'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
+        }
     
     def analyze_contract(self, contract_text: str, n_standards: int = 5) -> Dict:
         """
-        Complete contract analysis pipeline.
+        Complete contract analysis pipeline with modular RAG and memory.
         
         Args:
             contract_text: Text of the contract to analyze
-            n_standards: Number of relevant standards to retrieve
+            n_standards: Number of relevant standards to retrieve (router may adjust)
         
         Returns:
             Dictionary with full analysis results
         """
         print(f"\nAnalyzing contract ({len(contract_text)} characters)...")
         
-        # Step 1: Retrieve relevant standards
-        print("Step 1: Retrieving relevant Shariaa Standards...")
-        relevant_standards = self.retrieve_relevant_standards(contract_text, n_results=n_standards)
+        # Step 1: Retrieve relevant standards using modular RAG (with routing)
+        print("Step 1: Retrieving relevant Shariaa Standards using Modular RAG...")
+        relevant_standards = self.retrieve_relevant_standards(
+            contract_text, n_results=n_standards
+        )
         print(f"✅ Found {len(relevant_standards)} relevant standards")
         
-        # Step 2: Generate LLM analysis
-        print("Step 2: Generating compliance analysis with LLM...")
+        # Step 2: Generate Gemini analysis using those standards as context
+        print("Step 2: Generating compliance analysis with Gemini...")
         analysis = self.generate_analysis(contract_text, relevant_standards)
         print("✅ Analysis complete")
         
+        # Step 3: Update conversation memory if enabled
+        if self.memory and self.use_memory:
+            self.memory.add_turn(
+                query=f"Analyze contract ({len(contract_text)} chars)",
+                response=analysis['analysis'],
+                metadata={
+                    'standards_found': len(relevant_standards),
+                    'standards': [std['section_path'] for std in relevant_standards]
+                }
+            )
+        
         return {
             'contract_length': len(contract_text),
-            'relevant_standards': relevant_standards,
-            'analysis': analysis,
-            'summary': {
-                'standards_found': len(relevant_standards),
-                'llm_provider': analysis['provider'],
-                'llm_model': analysis['model']
-            }
+            "relevant_standards": relevant_standards,
+            "analysis": analysis,
+            "summary": {
+                "standards_found": len(relevant_standards),
+                "llm_provider": analysis["provider"],
+                "llm_model": analysis["model"],
+                "session_id": self.session_id if self.use_memory else None,
+            },
         }
 
 
@@ -317,8 +414,13 @@ def main():
     
     parser = argparse.ArgumentParser(description="Analyze contract for Shariah compliance")
     parser.add_argument("contract_file", help="Path to contract text file")
-    parser.add_argument("--provider", choices=["gemini", "openai", "anthropic"], default="gemini",
-                       help="LLM provider (default: gemini)")
+    # Provider is fixed to Gemini but argument kept for backward compatibility
+    parser.add_argument(
+        "--provider",
+        choices=["gemini"],
+        default="gemini",
+        help="LLM provider (fixed to gemini)",
+    )
     parser.add_argument("--api-key", help="API key (or set env var)")
     parser.add_argument("--standards", type=int, default=5,
                        help="Number of relevant standards to retrieve (default: 5)")

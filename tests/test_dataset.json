@@ -1,0 +1,66 @@
+[
+  {
+    "query": "What is Murabahah?",
+    "expected_sections": [
+      "3//1"
+    ],
+    "category": "definition"
+  },
+  {
+    "query": "What are the rules for currency trading?",
+    "expected_sections": [
+      "2//1",
+      "2//1//1",
+      "2//1//2"
+    ],
+    "category": "rules"
+  },
+  {
+    "query": "What is Riba and when is it prohibited?",
+    "expected_sections": [
+      "2//1",
+      "2//2"
+    ],
+    "category": "prohibition"
+  },
+  {
+    "query": "What is Mudarabah?",
+    "expected_sections": [
+      "5//1",
+      "5//2"
+    ],
+    "category": "definition"
+  },
+  {
+    "query": "What are the conditions for Ijarah contract?",
+    "expected_sections": [
+      "4//1",
+      "4//1//1"
+    ],
+    "category": "conditions"
+  },
+  {
+    "query": "What is Salam contract?",
+    "expected_sections": [
+      "6//1",
+      "6//1//1"
+    ],
+    "category": "definition"
+  },
+  {
+    "query": "What are the rules for Musharakah?",
+    "expected_sections": [
+      "5//1",
+      "5//1//1"
+    ],
+    "category": "rules"
+  },
+  {
+    "query": "What is prohibited in currency transactions?",
+    "expected_sections": [
+      "2//2",
+      "2//3"
+    ],
+    "category": "prohibition"
+  }
+]
