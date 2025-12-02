@@ -181,8 +181,26 @@ def get_analyzer():
     """Get analyzer instance with memory for current session."""
     session_id = get_session_id()
     try:
+        # Get API key from Streamlit secrets (for deployment) or environment variable
+        api_key = None
+        try:
+            # Try Streamlit secrets first (for Streamlit Cloud deployment)
+            api_key = st.secrets.get("GEMINI_API_KEY")
+        except (AttributeError, KeyError, FileNotFoundError):
+            # Fall back to environment variable
+            api_key = os.getenv("GEMINI_API_KEY")
+        
+        if not api_key:
+            st.error(
+                "⚠️ Gemini API key not found. Please set GEMINI_API_KEY in:\n"
+                "- Environment variables (for local development)\n"
+                "- Streamlit secrets (for Streamlit Cloud deployment)"
+            )
+            return None
+        
         # Create analyzer with memory enabled for this session
         analyzer = ContractAnalyzer(
+            api_key=api_key,
             session_id=session_id,
             use_memory=True
         )

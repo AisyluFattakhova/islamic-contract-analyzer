@@ -67,20 +67,26 @@ class ContractAnalyzer:
     - Memory management for context-aware conversations
     """
     
-    def __init__(self, llm_provider: str = "gemini", api_key: Optional[str] = "AIzaSyDczUyM-esLayEqleYtHac452eUwX95asA", 
+    def __init__(self, llm_provider: str = "gemini", api_key: Optional[str] = None, 
                  session_id: Optional[str] = None, use_memory: bool = True):
         """
         Initialize the contract analyzer with modular RAG components.
         
         Args:
             llm_provider: Kept for backward compatibility (always uses Gemini)
-            api_key: Gemini API key (or set GEMINI_API_KEY env var)
+            api_key: Gemini API key (optional, will use GEMINI_API_KEY env var if not provided)
             session_id: Session ID for conversation memory (auto-generated if None)
             use_memory: Whether to use conversation memory
         """
         # Force Gemini as the only provider
         self.llm_provider = "gemini"
         self.api_key = api_key or self._get_api_key()
+        
+        if not self.api_key:
+            raise ValueError(
+                "Gemini API key is required. Set GEMINI_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
         
         # Initialize memory manager
         self.memory_manager = MemoryManager()
@@ -118,14 +124,9 @@ class ContractAnalyzer:
         
         print("✅ Modular RAG system loaded")
     
-    def _get_api_key(self) -> str:
+    def _get_api_key(self) -> Optional[str]:
         """Get API key for Gemini from environment variables."""
-        key = os.getenv("GEMINI_API_KEY")
-        if not key:
-            raise ValueError(
-                "GEMINI_API_KEY not found. Set it as environment variable or pass api_key parameter."
-            )
-        return key
+        return os.getenv("GEMINI_API_KEY")
     
     def retrieve_relevant_standards(self, contract_text: str, n_results: int = 5) -> List[Dict]:
         """
