@@ -1,0 +1,6 @@
+{
+  "model_name": "BAAI/bge-base-en-v1.5",
+  "embedding_dimension": 768,
+  "num_embeddings": 2260,
+  "processing_time": 1764691847.231991
+}

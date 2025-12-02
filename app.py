@@ -177,9 +177,159 @@ def load_analyzer_base():
     pass
 
 
+def setup_chromadb_if_needed():
+    """Automatically set up ChromaDB database if collection doesn't exist."""
+    # Check if setup has already been attempted in this session
+    if 'chromadb_setup_attempted' in st.session_state:
+        return
+    
+    try:
+        import chromadb
+        from chromadb.config import Settings
+        from pathlib import Path
+        import numpy as np
+        import pandas as pd
+        import json
+        
+        # Determine database path (try multiple strategies for Streamlit Cloud compatibility)
+        db_path = None
+        possible_paths = [
+            Path(__file__).parent / "datasets" / "chroma_db",
+            Path(os.getcwd()) / "datasets" / "chroma_db",
+            Path("/mount/src/islamic-contract-analyzer/datasets/chroma_db"),  # Streamlit Cloud default
+        ]
+        
+        for path in possible_paths:
+            if path.exists():
+                db_path = path
+                break
+        
+        if db_path is None:
+            # Create directory in the most likely location
+            db_path = Path(__file__).parent / "datasets" / "chroma_db"
+            db_path.mkdir(parents=True, exist_ok=True)
+        
+        # Check if collection exists
+        client = chromadb.PersistentClient(
+            path=str(db_path),
+            settings=Settings(anonymized_telemetry=False)
+        )
+        
+        collection_name = "shariaa_standards"
+        collections = client.list_collections()
+        collection_exists = any(c.name == collection_name for c in collections)
+        
+        if collection_exists:
+            st.session_state.chromadb_setup_attempted = True
+            return
+        
+        # Collection doesn't exist - set it up
+        st.info("🔧 Setting up ChromaDB database... This may take a minute.")
+        
+        # Load embeddings and dataset (try multiple path strategies)
+        possible_base_paths = [
+            Path(__file__).parent,
+            Path(os.getcwd()),
+            Path("/mount/src/islamic-contract-analyzer"),  # Streamlit Cloud default
+        ]
+        
+        embeddings_path = None
+        metadata_path = None
+        dataset_path = None
+        
+        for base_path in possible_base_paths:
+            test_embeddings = base_path / "datasets" / "embeddings" / "embeddings.npy"
+            test_dataset = base_path / "datasets" / "standards_dataset_with_embeddings.csv"
+            if test_embeddings.exists() and test_dataset.exists():
+                embeddings_path = test_embeddings
+                metadata_path = base_path / "datasets" / "embeddings" / "metadata.json"
+                dataset_path = test_dataset
+                break
+        
+        if not embeddings_path.exists() or not dataset_path.exists():
+            st.error(
+                f"❌ Required files not found for database setup:\n"
+                f"- Embeddings: {embeddings_path}\n"
+                f"- Dataset: {dataset_path}\n\n"
+                f"**For Streamlit Cloud deployment:**\n"
+                f"1. Ensure `datasets/embeddings/embeddings.npy` and `datasets/standards_dataset_with_embeddings.csv` are committed to your repository\n"
+                f"2. Or remove `datasets/embeddings/` from `.gitignore` if files are small enough\n"
+                f"3. The database will be automatically set up on first run"
+            )
+            st.session_state.chromadb_setup_attempted = True
+            return
+        
+        # Load data
+        embeddings = np.load(embeddings_path)
+        df = pd.read_csv(dataset_path)
+        
+        if len(embeddings) != len(df):
+            st.error(f"❌ Mismatch: {len(embeddings)} embeddings but {len(df)} dataset rows")
+            st.session_state.chromadb_setup_attempted = True
+            return
+        
+        # Create collection
+        collection = client.create_collection(
+            name=collection_name,
+            metadata={
+                "description": "Shariaa Standards for Islamic Contract Analysis",
+                "model": "BAAI/bge-base-en-v1.5",
+                "embedding_dim": embeddings.shape[1]
+            }
+        )
+        
+        # Prepare and add data in batches
+        batch_size = 1000
+        total_batches = (len(df) + batch_size - 1) // batch_size
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i in range(0, len(df), batch_size):
+            batch_end = min(i + batch_size, len(df))
+            batch_df = df.iloc[i:batch_end]
+            
+            ids = [f"section_{row['embedding_index']}" for _, row in batch_df.iterrows()]
+            documents = [str(row['content']) for _, row in batch_df.iterrows()]
+            embeddings_list = [embeddings[idx].tolist() for idx in range(i, batch_end)]
+            metadatas = [{
+                'section_number': str(row['section_number']),
+                'section_path': str(row['section_path']),
+                'content_length': int(row['content_length']),
+                'line_number': int(row['line_number']),
+                'embedding_index': int(row['embedding_index'])
+            } for _, row in batch_df.iterrows()]
+            
+            collection.add(
+                ids=ids,
+                embeddings=embeddings_list,
+                documents=documents,
+                metadatas=metadatas
+            )
+            
+            progress = (i + batch_size) / len(df)
+            progress_bar.progress(min(progress, 1.0))
+            status_text.text(f"Added batch {i//batch_size + 1}/{total_batches} ({batch_end}/{len(df)} documents)")
+        
+        progress_bar.empty()
+        status_text.empty()
+        st.success(f"✅ ChromaDB database set up successfully! ({collection.count()} documents)")
+        st.session_state.chromadb_setup_attempted = True
+        
+    except Exception as e:
+        st.error(f"❌ Error setting up ChromaDB: {e}")
+        st.session_state.chromadb_setup_attempted = True
+        import traceback
+        st.code(traceback.format_exc())
+
+
 def get_analyzer():
     """Get analyzer instance with memory for current session."""
     session_id = get_session_id()
+    
+    # Automatically set up ChromaDB if needed
+    setup_chromadb_if_needed()
+    
     try:
         # Get API key from Streamlit secrets (for deployment) or environment variable
         api_key = None

@@ -60,7 +60,7 @@ env/
 # datasets/standards_dataset.csv
 # datasets/standards_dataset_backup.csv
 # datasets/standards_dataset_cleaned.csv
-datasets/embeddings/
+# datasets/embeddings/
 datasets/analysis/dataset_with_stats.csv
 
 # Cleaned text files (generated from PDFs)
