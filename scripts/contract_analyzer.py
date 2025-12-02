@@ -316,7 +316,6 @@ Format your response in clear sections with bullet points where appropriate."""
             'tokens_used': result.get('tokens_used')
         }
     
-    @retry_with_backoff(max_retries=3, initial_delay=1.0, backoff_factor=2.0)
     @log_api_call
     def _call_gemini(self, prompt: str) -> Dict:
         """
@@ -325,9 +324,11 @@ Format your response in clear sections with bullet points where appropriate."""
         - Rate limiting
         - Logging
         - Error handling
+        - Quota/rate limit error handling
         """
         try:
             import google.generativeai as genai
+            from google.api_core import exceptions as google_exceptions
         except ImportError:
             raise ImportError("Google Generative AI package not installed. Run: pip install google-generativeai")
         
@@ -337,26 +338,77 @@ Format your response in clear sections with bullet points where appropriate."""
         # Configure Gemini
         genai.configure(api_key=self.api_key)
         
-        # Use Gemini model (try newer model first, fallback to stable)
-        try:
-            model_name = 'gemini-2.0-flash-exp'
-            model = genai.GenerativeModel(model_name)
-        except Exception:
-            # Fallback to stable model
-            model_name = 'gemini-2.5-flash'
-            model = genai.GenerativeModel(model_name)
+        # Use stable model with better rate limits (avoid experimental models on free tier)
+        # gemini-1.5-flash has better rate limits than experimental models
+        model_name = 'gemini-1.5-flash'
+        model = genai.GenerativeModel(model_name)
         
-        # Generate response
-        response = model.generate_content(prompt)
+        # Generate response with retry logic for quota errors
+        max_retries = 3
+        retry_delay = 1.0
         
-        analysis_text = response.text
-        
-        return {
-            'analysis': analysis_text,
-            'model': model_name,
-            'provider': 'gemini',
-            'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
-        }
+        for attempt in range(max_retries + 1):
+            try:
+                response = model.generate_content(prompt)
+                analysis_text = response.text
+                
+                return {
+                    'analysis': analysis_text,
+                    'model': model_name,
+                    'provider': 'gemini',
+                    'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
+                }
+            
+            except Exception as e:
+                error_str = str(e).lower()
+                error_full = str(e)
+                
+                # Check for quota/rate limit errors
+                is_quota_error = (
+                    '429' in error_str or 
+                    'quota' in error_str or 
+                    'rate limit' in error_str or
+                    'exceeded' in error_str
+                )
+                
+                if is_quota_error:
+                    # Extract retry delay from error if available
+                    import re
+                    import time
+                    
+                    # Try to extract retry delay from error message
+                    retry_match = re.search(r'retry.*?(\d+(?:\.\d+)?)\s*s', error_full, re.IGNORECASE)
+                    if retry_match:
+                        retry_delay = float(retry_match.group(1)) + 2.0  # Add 2 second buffer
+                    else:
+                        # Exponential backoff
+                        retry_delay = min(retry_delay * 2, 60.0)  # Max 60s
+                    
+                    if attempt < max_retries:
+                        wait_msg = (
+                            f"⚠️ Rate limit/quota exceeded. "
+                            f"Retrying in {retry_delay:.1f}s (attempt {attempt + 1}/{max_retries + 1})..."
+                        )
+                        print(wait_msg)
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        # All retries exhausted - provide helpful error message
+                        error_summary = error_full[:300] if len(error_full) > 300 else error_full
+                        raise ValueError(
+                            f"❌ Gemini API quota/rate limit exceeded after {max_retries + 1} attempts.\n\n"
+                            f"**What happened:**\n"
+                            f"The free tier has rate limits on requests per minute. You've hit the limit.\n\n"
+                            f"**Solutions:**\n"
+                            f"1. Wait a few minutes and try again\n"
+                            f"2. Check your quota usage: https://ai.dev/usage?tab=rate-limit\n"
+                            f"3. Consider upgrading your API plan for higher limits\n"
+                            f"4. Use a stable model (gemini-1.5-flash) instead of experimental models\n\n"
+                            f"**Error details:** {error_summary}"
+                        )
+                else:
+                    # Other errors - raise immediately
+                    raise
     
     def analyze_contract(self, contract_text: str, n_standards: int = 5) -> Dict:
         """
