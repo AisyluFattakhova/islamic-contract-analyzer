@@ -327,7 +327,7 @@ Format your response in clear sections with bullet points where appropriate."""
         - Error handling
         """
         try:
-            from google import genai
+            import google.generativeai as genai
         except ImportError:
             raise ImportError("Google Generative AI package not installed. Run: pip install google-generativeai")
         
@@ -335,22 +335,25 @@ Format your response in clear sections with bullet points where appropriate."""
         self.rate_limiter.wait_if_needed()
         
         # Configure Gemini
-        Client = genai.Client(api_key=self.api_key)
+        genai.configure(api_key=self.api_key)
         
-        # Use Gemini model
-        model = 'gemini-2.5-flash'
+        # Use Gemini model (try newer model first, fallback to stable)
+        try:
+            model_name = 'gemini-2.0-flash-exp'
+            model = genai.GenerativeModel(model_name)
+        except Exception:
+            # Fallback to stable model
+            model_name = 'gemini-2.5-flash'
+            model = genai.GenerativeModel(model_name)
         
         # Generate response
-        response = Client.models.generate_content(
-            model=model,
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         
         analysis_text = response.text
         
         return {
             'analysis': analysis_text,
-            'model': 'gemini-2.5-flash',
+            'model': model_name,
             'provider': 'gemini',
             'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
         }
