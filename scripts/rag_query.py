@@ -429,11 +429,11 @@ def interactive_query(collection=None, index=None, mapping=None, model=None, df=
                 print("\n👋 Goodbye!")
                 break
             
-            # Query the database
+            # Query the database (ChromaDB only)
             if db_type == "ChromaDB":
                 results = query_chromadb(collection, query, model, n_results=5, use_query_expansion=True)
-            else:  # FAISS
-                results = query_faiss(index, mapping, query, model, df, n_results=5, use_query_expansion=True)
+            else:
+                raise FileNotFoundError("Only ChromaDB is supported. FAISS has been removed for Streamlit Cloud compatibility.")
             
             # Display results
             display_results(query, results, db_type)
@@ -448,11 +448,11 @@ def interactive_query(collection=None, index=None, mapping=None, model=None, df=
 
 
 def single_query(query, collection=None, index=None, mapping=None, model=None, df=None, db_type="ChromaDB", n_results=5):
-    """Perform a single query and return results."""
+    """Perform a single query and return results (ChromaDB only)."""
     if db_type == "ChromaDB":
         results = query_chromadb(collection, query, model, n_results=n_results, use_query_expansion=True)
-    else:  # FAISS
-        results = query_faiss(index, mapping, query, model, df, n_results=n_results, use_query_expansion=True)
+    else:
+        raise FileNotFoundError("Only ChromaDB is supported. FAISS has been removed for Streamlit Cloud compatibility.")
     
     display_results(query, results, db_type)
     return results
@@ -473,9 +473,7 @@ def detect_database_type():
         except:
             pass
     
-    if FAISS_INDEX_PATH.exists() and FAISS_MAPPING_PATH.exists():
-        return "FAISS"
-    
+    # FAISS removed for Streamlit Cloud compatibility - ChromaDB only
     return None
 
 
@@ -510,17 +508,8 @@ def main():
     try:
         if db_type == "ChromaDB":
             collection = load_chromadb()
-        else:  # FAISS
-            index, mapping = load_faiss()
-            # Load dataset for FAISS (needed for metadata)
-            if DATASET_PATH.exists():
-                df = pd.read_csv(DATASET_PATH)
-                print(f"✅ Loaded dataset for metadata")
-            else:
-                raise FileNotFoundError(
-                    f"Dataset not found at {DATASET_PATH}\n"
-                    f"Required for FAISS queries."
-                )
+        else:
+            raise FileNotFoundError("Only ChromaDB is supported. FAISS has been removed for Streamlit Cloud compatibility.")
     except Exception as e:
         print(f"\n❌ Error loading database: {e}")
         sys.exit(1)

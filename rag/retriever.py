@@ -5,7 +5,7 @@ Main retrieval component that orchestrates embedding, vector store, and routing.
 """
 from typing import List, Dict, Optional
 from .embedder import Embedder
-from .vector_store import VectorStore, ChromaDBVectorStore, FAISSVectorStore
+from .vector_store import VectorStore, ChromaDBVectorStore
 from .router import QueryRouter
 from pathlib import Path
 
@@ -32,19 +32,13 @@ class RAGRetriever:
         self.use_routing = use_routing
     
     def _create_default_vector_store(self) -> VectorStore:
-        """Create default vector store based on what's available."""
-        # Try ChromaDB first
+        """Create default vector store (ChromaDB only)."""
+        # Use ChromaDB only (FAISS removed for Streamlit Cloud compatibility)
         try:
             return ChromaDBVectorStore()
-        except:
-            pass
-        
-        # Fall back to FAISS
-        try:
-            return FAISSVectorStore()
         except Exception as e:
             raise FileNotFoundError(
-                f"No vector database found. Run setup first. Error: {e}"
+                f"ChromaDB vector database not found. Run setup first. Error: {e}"
             )
     
     def retrieve(self, query: str, n_results: int = 5,

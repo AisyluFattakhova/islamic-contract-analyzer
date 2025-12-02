@@ -53,9 +53,7 @@ class RAGBenchmark:
             self.mapping = None
             self.df = None
         else:
-            self.collection = None
-            self.index, self.mapping = load_faiss()
-            self.df = pd.read_csv(DATASET_PATH)
+            raise FileNotFoundError("Only ChromaDB is supported. FAISS has been removed for Streamlit Cloud compatibility.")
         
         print("✅ RAG system loaded")
     
@@ -124,14 +122,11 @@ class RAGBenchmark:
         """Query RAG system and return results."""
         if self.db_type == "ChromaDB":
             results = query_chromadb(
-                self.collection, query, self.model,
+                self.collection, query, self.model, 
                 n_results=k, use_query_expansion=True
             )
         else:
-            results = query_faiss(
-                self.index, self.mapping, query, self.model,
-                self.df, n_results=k, use_query_expansion=True
-            )
+            raise FileNotFoundError("Only ChromaDB is supported. FAISS has been removed for Streamlit Cloud compatibility.")
         
         # Format results
         formatted_results = []

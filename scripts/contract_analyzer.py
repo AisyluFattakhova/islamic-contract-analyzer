@@ -24,7 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from rag.retriever import RAGRetriever
 from rag.router import QueryRouter
 from rag.embedder import Embedder
-from rag.vector_store import ChromaDBVectorStore, FAISSVectorStore
+from rag.vector_store import ChromaDBVectorStore
 
 # Import memory manager
 if str(SCRIPT_DIR) not in sys.path:
@@ -97,19 +97,14 @@ class ContractAnalyzer:
         # Load modular RAG components
         print("Loading Modular RAG system...")
         try:
-            # Try ChromaDB first
+            # Use ChromaDB only (FAISS removed for Streamlit Cloud compatibility)
             vector_store = ChromaDBVectorStore()
             print("✅ Using ChromaDB vector store")
-        except Exception:
-            try:
-                # Fall back to FAISS
-                vector_store = FAISSVectorStore()
-                print("✅ Using FAISS vector store")
-            except Exception as e:
-                raise FileNotFoundError(
-                    f"No vector database found. Run 'python scripts/setup_vector_db.py' first.\n"
-                    f"Error: {e}"
-                )
+        except Exception as e:
+            raise FileNotFoundError(
+                f"ChromaDB vector database not found. Run 'python scripts/setup_vector_db.py' first.\n"
+                f"Error: {e}"
+            )
         
         # Initialize modular components
         self.embedder = Embedder()

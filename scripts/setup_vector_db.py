@@ -260,43 +260,22 @@ def main():
         print(f"\n❌ {e}")
         sys.exit(1)
     
-    # Ask user which database to use
+    # Use ChromaDB only (FAISS removed for Streamlit Cloud compatibility)
     print(f"\n{'='*60}")
-    print("Choose vector database:")
-    print("  1. ChromaDB (Recommended - Persistent, easy to use)")
-    print("  2. FAISS (Lightweight, in-memory, faster)")
+    print("Setting up ChromaDB Vector Database")
+    print("(FAISS removed for Streamlit Cloud compatibility)")
     print(f"{'='*60}")
     
-    choice = input("\nEnter choice (1 or 2, default=1): ").strip()
-    if not choice:
-        choice = "1"
-    
     try:
-        if choice == "1":
-            # Setup ChromaDB
-            collection, client = setup_chromadb(embeddings, df, metadata)
-            print(f"\n{'='*60}")
-            print("✅ ChromaDB setup complete!")
-            print(f"{'='*60}")
-            print(f"\nNext steps:")
-            print(f"  - Use ChromaDB in your RAG queries")
-            print(f"  - Database location: {CHROMA_DB_DIR}")
-            print(f"  - Collection name: shariaa_standards")
-            
-        elif choice == "2":
-            # Setup FAISS
-            index, faiss_path = setup_faiss(embeddings, df, metadata)
-            print(f"\n{'='*60}")
-            print("✅ FAISS setup complete!")
-            print(f"{'='*60}")
-            print(f"\nNext steps:")
-            print(f"  - Use FAISS index in your RAG queries")
-            print(f"  - Index location: {faiss_path}")
-            print(f"  - Note: FAISS is in-memory, load index each time")
-            
-        else:
-            print(f"\n❌ Invalid choice: {choice}")
-            sys.exit(1)
+        # Setup ChromaDB only
+        collection, client = setup_chromadb(embeddings, df, metadata)
+        print(f"\n{'='*60}")
+        print("✅ ChromaDB setup complete!")
+        print(f"{'='*60}")
+        print(f"\nNext steps:")
+        print(f"  - Use ChromaDB in your RAG queries")
+        print(f"  - Database location: {CHROMA_DB_DIR}")
+        print(f"  - Collection name: shariaa_standards")
             
     except ImportError as e:
         print(f"\n❌ {e}")
