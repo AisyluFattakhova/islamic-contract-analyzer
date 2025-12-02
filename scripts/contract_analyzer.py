@@ -99,7 +99,7 @@ class ContractAnalyzer:
         try:
             # Use ChromaDB only (FAISS removed for Streamlit Cloud compatibility)
             vector_store = ChromaDBVectorStore()
-            print("✅ Using ChromaDB vector store")
+            print("[OK] Using ChromaDB vector store")
         except Exception as e:
             raise FileNotFoundError(
                 f"ChromaDB vector database not found. Run 'python scripts/setup_vector_db.py' first.\n"

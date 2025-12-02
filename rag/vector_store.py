@@ -53,19 +53,59 @@ class ChromaDBVectorStore(VectorStore):
             raise ImportError("ChromaDB not installed. Run: pip install chromadb")
         
         if db_path is None:
+            # Try multiple path resolution strategies for compatibility
+            # Strategy 1: Relative to this file (rag/vector_store.py)
             db_path = Path(__file__).parent.parent / "datasets" / "chroma_db"
+            
+            # Strategy 2: If that doesn't exist, try relative to current working directory
+            if not db_path.exists():
+                import os
+                cwd_path = Path(os.getcwd()) / "datasets" / "chroma_db"
+                if cwd_path.exists():
+                    db_path = cwd_path
+            
+            # Strategy 3: Try absolute path from project root
+            if not db_path.exists():
+                # Try to find project root by looking for common markers
+                current = Path(__file__).resolve()
+                while current != current.parent:
+                    if (current / "datasets" / "chroma_db").exists():
+                        db_path = current / "datasets" / "chroma_db"
+                        break
+                    current = current.parent
+        
+        # Convert to absolute path and ensure it exists
+        db_path = Path(db_path).resolve()
+        
+        if not db_path.exists():
+            raise FileNotFoundError(
+                f"ChromaDB database directory not found at: {db_path}\n"
+                f"Please run 'python scripts/setup_vector_db.py' first."
+            )
         
         self.client = chromadb.PersistentClient(
             path=str(db_path),
             settings=Settings(anonymized_telemetry=False)
         )
         
+        # List all collections for debugging
+        try:
+            all_collections = self.client.list_collections()
+            collection_names = [c.name for c in all_collections]
+        except Exception:
+            collection_names = []
+        
         try:
             self.collection = self.client.get_collection(collection_name)
         except Exception as e:
-            raise FileNotFoundError(
-                f"Collection '{collection_name}' not found. Run setup first."
+            error_msg = (
+                f"Collection '{collection_name}' not found.\n"
+                f"Database path: {db_path}\n"
+                f"Available collections: {collection_names}\n"
+                f"Error: {e}\n"
+                f"Please run 'python scripts/setup_vector_db.py' first."
             )
+            raise FileNotFoundError(error_msg)
     
     def query(self, query_embedding: List[float], n_results: int = 5,
               include_metadata: bool = True) -> Dict:
@@ -87,78 +127,4 @@ class ChromaDBVectorStore(VectorStore):
     def count(self) -> int:
         """Get document count."""
         return self.collection.count()
-
-
-class FAISSVectorStore(VectorStore):
-    """FAISS implementation of VectorStore."""
-    
-    def __init__(self, index_path: Optional[Path] = None,
-                 mapping_path: Optional[Path] = None,
-                 dataset_path: Optional[Path] = None):
-        """
-        Initialize FAISS vector store.
-        
-        Args:
-            index_path: Path to FAISS index file
-            mapping_path: Path to mapping JSON file
-            dataset_path: Path to dataset CSV
-        """
-        try:
-            import faiss
-        except ImportError:
-            raise ImportError("FAISS not installed. Run: pip install faiss-cpu")
-        
-        import pandas as pd
-        
-        if index_path is None:
-            base_path = Path(__file__).parent.parent / "datasets" / "embeddings"
-            index_path = base_path / "faiss.index"
-            mapping_path = base_path / "faiss_mapping.json"
-            dataset_path = Path(__file__).parent.parent / "datasets" / "standards_dataset_with_embeddings.csv"
-        
-        self.index = faiss.read_index(str(index_path))
-        
-        with open(mapping_path, 'r') as f:
-            self.mapping = json.load(f)
-        
-        self.df = pd.read_csv(dataset_path)
-    
-    def query(self, query_embedding: List[float], n_results: int = 5,
-              include_metadata: bool = True) -> Dict:
-        """Query FAISS."""
-        import numpy as np
-        
-        query_vector = np.array([query_embedding], dtype='float32')
-        distances, indices = self.index.search(query_vector, n_results)
-        
-        results = {
-            'ids': [],
-            'documents': [],
-            'metadatas': [],
-            'distances': []
-        }
-        
-        for dist, idx in zip(distances[0], indices[0]):
-            embedding_index = self.mapping['index_to_row'].get(str(idx))
-            if embedding_index is None:
-                continue
-            
-            row = self.df[self.df['embedding_index'] == embedding_index].iloc[0]
-            
-            results['ids'].append(f"section_{embedding_index}")
-            results['documents'].append(row['content'])
-            results['metadatas'].append({
-                'section_number': str(row['section_number']),
-                'section_path': str(row['section_path']),
-                'content_length': int(row['content_length']),
-                'line_number': int(row['line_number']),
-                'embedding_index': int(row['embedding_index'])
-            })
-            results['distances'].append(float(dist))
-        
-        return results
-    
-    def count(self) -> int:
-        """Get document count."""
-        return self.index.ntotal
 
