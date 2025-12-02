@@ -340,7 +340,7 @@ Format your response in clear sections with bullet points where appropriate."""
         
         # Use stable model with better rate limits (avoid experimental models on free tier)
         # gemini-1.5-flash has better rate limits than experimental models
-        model_name = 'gemini-1.5-flash'
+        model_name = 'gemini-2.5-flash'
         model = genai.GenerativeModel(model_name)
         
         # Generate response with retry logic for quota errors
