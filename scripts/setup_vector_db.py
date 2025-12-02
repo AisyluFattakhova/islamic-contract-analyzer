@@ -40,21 +40,21 @@ def load_embeddings_and_dataset():
     # Load embeddings
     print(f"Loading embeddings from: {EMBEDDINGS_PATH}")
     embeddings = np.load(EMBEDDINGS_PATH)
-    print(f"✅ Loaded embeddings: shape {embeddings.shape}")
+    print(f"[OK] Loaded embeddings: shape {embeddings.shape}")
     
     # Load metadata
     if METADATA_PATH.exists():
         with open(METADATA_PATH, 'r') as f:
             metadata = json.load(f)
-        print(f"✅ Loaded metadata: {metadata['model_name']}, dim={metadata['embedding_dimension']}")
+        print(f"[OK] Loaded metadata: {metadata['model_name']}, dim={metadata['embedding_dimension']}")
     else:
         metadata = None
-        print("⚠️  No metadata file found")
+        print("[WARNING]  No metadata file found")
     
     # Load dataset
     print(f"Loading dataset from: {DATASET_PATH}")
     df = pd.read_csv(DATASET_PATH)
-    print(f"✅ Loaded dataset: {len(df)} sections")
+    print(f"[OK] Loaded dataset: {len(df)} sections")
     
     # Verify embeddings match dataset
     if len(embeddings) != len(df):
@@ -117,7 +117,7 @@ def setup_chromadb(embeddings, df, metadata):
         }
     )
     
-    print(f"✅ Collection created")
+    print(f"[OK] Collection created")
     
     # Prepare data for ChromaDB
     # ChromaDB expects: ids, embeddings, documents, metadatas
@@ -174,7 +174,7 @@ def setup_chromadb(embeddings, df, metadata):
     
     # Verify collection
     count = collection.count()
-    print(f"\n✅ ChromaDB setup complete!")
+    print(f"\n[OK] ChromaDB setup complete!")
     print(f"   Collection: {collection_name}")
     print(f"   Documents: {count}")
     print(f"   Database location: {CHROMA_DB_DIR}")
@@ -185,7 +185,7 @@ def setup_chromadb(embeddings, df, metadata):
         query_embeddings=[embeddings[0].tolist()],
         n_results=3
     )
-    print(f"✅ Test query successful! Retrieved {len(results['ids'][0])} results")
+    print(f"[OK] Test query successful! Retrieved {len(results['ids'][0])} results")
     
     return collection, client
 
@@ -223,13 +223,13 @@ def setup_faiss(embeddings, df, metadata):
     print(f"Adding {len(embeddings_float32)} embeddings to index...")
     index.add(embeddings_float32)
     
-    print(f"✅ FAISS index created with {index.ntotal} vectors")
+    print(f"[OK] FAISS index created with {index.ntotal} vectors")
     
     # Save FAISS index
     faiss_path = EMBEDDINGS_DIR / "faiss.index"
     print(f"\nSaving FAISS index to: {faiss_path}")
     faiss.write_index(index, str(faiss_path))
-    print(f"✅ FAISS index saved")
+    print(f"[OK] FAISS index saved")
     
     # Save metadata mapping (FAISS doesn't store metadata, so we need a separate file)
     mapping_path = EMBEDDINGS_DIR / "faiss_mapping.json"
@@ -239,7 +239,7 @@ def setup_faiss(embeddings, df, metadata):
     }
     with open(mapping_path, 'w') as f:
         json.dump(mapping, f, indent=2)
-    print(f"✅ FAISS mapping saved to: {mapping_path}")
+    print(f"[OK] FAISS mapping saved to: {mapping_path}")
     
     return index, faiss_path
 
@@ -254,10 +254,10 @@ def main():
     try:
         embeddings, df, metadata = load_embeddings_and_dataset()
     except FileNotFoundError as e:
-        print(f"\n❌ {e}")
+        print(f"\n[ERROR] {e}")
         sys.exit(1)
     except ValueError as e:
-        print(f"\n❌ {e}")
+        print(f"\n[ERROR] {e}")
         sys.exit(1)
     
     # Use ChromaDB only (FAISS removed for Streamlit Cloud compatibility)
@@ -270,7 +270,7 @@ def main():
         # Setup ChromaDB only
         collection, client = setup_chromadb(embeddings, df, metadata)
         print(f"\n{'='*60}")
-        print("✅ ChromaDB setup complete!")
+        print("[OK] ChromaDB setup complete!")
         print(f"{'='*60}")
         print(f"\nNext steps:")
         print(f"  - Use ChromaDB in your RAG queries")
@@ -278,10 +278,10 @@ def main():
         print(f"  - Collection name: shariaa_standards")
             
     except ImportError as e:
-        print(f"\n❌ {e}")
+        print(f"\n[ERROR] {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Error setting up vector database: {e}")
+        print(f"\n[ERROR] Error setting up vector database: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

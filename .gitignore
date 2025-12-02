@@ -110,7 +110,6 @@ models/
 # Vector database files
 *.faiss
 *.index
-chroma_db/
 vector_db/
 
 # Test coverage
