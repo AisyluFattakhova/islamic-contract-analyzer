@@ -331,26 +331,38 @@ def get_analyzer():
     setup_chromadb_if_needed()
     
     try:
-        # Get API key from Streamlit secrets (for deployment) or environment variable
-        api_key = None
+        # Get API keys from Streamlit secrets (for deployment) or environment variables
+        api_keys = []
         try:
             # Try Streamlit secrets first (for Streamlit Cloud deployment)
-            api_key = st.secrets.get("GEMINI_API_KEY")
+            key1 = st.secrets.get("GEMINI_API_KEY", None)
+            key2 = st.secrets.get("GEMINI_API_KEY_2", None)
+            if key1:
+                api_keys.append(key1)
+            if key2:
+                api_keys.append(key2)
         except (AttributeError, KeyError, FileNotFoundError):
-            # Fall back to environment variable
-            api_key = os.getenv("GEMINI_API_KEY")
+            # Fall back to environment variables
+            key1 = os.getenv("GEMINI_API_KEY")
+            key2 = os.getenv("GEMINI_API_KEY_2")
+            if key1:
+                api_keys.append(key1)
+            if key2:
+                api_keys.append(key2)
         
-        if not api_key:
+        if not api_keys:
             st.error(
-                "⚠️ Gemini API key not found. Please set GEMINI_API_KEY in:\n"
+                "⚠️ Gemini API key not found. Please set at least GEMINI_API_KEY in:\n"
                 "- Environment variables (for local development)\n"
-                "- Streamlit secrets (for Streamlit Cloud deployment)"
+                "- Streamlit secrets (for Streamlit Cloud deployment)\n\n"
+                "Optional: Set GEMINI_API_KEY_2 for automatic fallback on rate limit errors."
             )
             return None
         
         # Create analyzer with memory enabled for this session
+        # Pass api_keys list for automatic fallback (works with single or multiple keys)
         analyzer = ContractAnalyzer(
-            api_key=api_key,
+            api_keys=api_keys,
             session_id=session_id,
             use_memory=True
         )

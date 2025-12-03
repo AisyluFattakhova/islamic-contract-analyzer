@@ -68,6 +68,7 @@ class ContractAnalyzer:
     """
     
     def __init__(self, llm_provider: str = "gemini", api_key: Optional[str] = None, 
+                 api_keys: Optional[List[str]] = None,
                  session_id: Optional[str] = None, use_memory: bool = True):
         """
         Initialize the contract analyzer with modular RAG components.
@@ -75,18 +76,30 @@ class ContractAnalyzer:
         Args:
             llm_provider: Kept for backward compatibility (always uses Gemini)
             api_key: Gemini API key (optional, will use GEMINI_API_KEY env var if not provided)
+            api_keys: List of Gemini API keys for fallback (optional, will use GEMINI_API_KEY and GEMINI_API_KEY_2 if not provided)
             session_id: Session ID for conversation memory (auto-generated if None)
             use_memory: Whether to use conversation memory
         """
         # Force Gemini as the only provider
         self.llm_provider = "gemini"
-        self.api_key = api_key or self._get_api_key()
         
-        if not self.api_key:
+        # Get API keys - support both single key and multiple keys
+        if api_keys:
+            self.api_keys = [k for k in api_keys if k]  # Filter out None/empty keys
+        elif api_key:
+            self.api_keys = [api_key]
+        else:
+            self.api_keys = self._get_api_keys()
+        
+        if not self.api_keys:
             raise ValueError(
-                "Gemini API key is required. Set GEMINI_API_KEY environment variable "
-                "or pass api_key parameter."
+                "At least one Gemini API key is required. Set GEMINI_API_KEY (and optionally GEMINI_API_KEY_2) "
+                "environment variables or pass api_key/api_keys parameter."
             )
+        
+        # Current key index (starts at 0)
+        self.current_key_index = 0
+        self.api_key = self.api_keys[self.current_key_index]  # Current active key
         
         # Initialize memory manager
         self.memory_manager = MemoryManager()
@@ -124,9 +137,40 @@ class ContractAnalyzer:
         
         print("✅ Modular RAG system loaded")
     
-    def _get_api_key(self) -> Optional[str]:
-        """Get API key for Gemini from environment variables."""
-        return os.getenv("GEMINI_API_KEY")
+    def _get_api_keys(self) -> List[str]:
+        """
+        Get API keys for Gemini from environment variables.
+        Supports GEMINI_API_KEY and GEMINI_API_KEY_2 for fallback.
+        
+        Returns:
+            List of API keys (at least one, or empty list if none found)
+        """
+        keys = []
+        key1 = os.getenv("GEMINI_API_KEY")
+        if key1:
+            keys.append(key1)
+        
+        key2 = os.getenv("GEMINI_API_KEY_2")
+        if key2:
+            keys.append(key2)
+        
+        return keys
+    
+    def _switch_to_next_key(self) -> bool:
+        """
+        Switch to the next available API key.
+        
+        Returns:
+            True if switched to a new key, False if no more keys available
+        """
+        if self.current_key_index < len(self.api_keys) - 1:
+            self.current_key_index += 1
+            self.api_key = self.api_keys[self.current_key_index]
+            print(f"🔄 Switched to API key #{self.current_key_index + 1} (out of {len(self.api_keys)})")
+            return True
+        else:
+            print(f"⚠️ No more API keys available. All {len(self.api_keys)} key(s) exhausted.")
+            return False
     
     def retrieve_relevant_standards(self, contract_text: str, n_results: int = 5) -> List[Dict]:
         """
@@ -325,6 +369,7 @@ Format your response in clear sections with bullet points where appropriate."""
         - Logging
         - Error handling
         - Quota/rate limit error handling
+        - Automatic key switching on 429 errors
         """
         try:
             import google.generativeai as genai
@@ -332,83 +377,115 @@ Format your response in clear sections with bullet points where appropriate."""
         except ImportError:
             raise ImportError("Google Generative AI package not installed. Run: pip install google-generativeai")
         
-        # Rate limiting (best practice)
-        self.rate_limiter.wait_if_needed()
+        # Try each API key until one works
+        original_key_index = self.current_key_index
+        keys_tried = []
+        last_error = None
         
-        # Configure Gemini
-        genai.configure(api_key=self.api_key)
-        
-        # Use stable model with better rate limits (avoid experimental models on free tier)
-        # gemini-1.5-flash has better rate limits than experimental models
-        model_name = 'gemini-2.5-flash'
-        model = genai.GenerativeModel(model_name)
-        
-        # Generate response with retry logic for quota errors
-        max_retries = 3
-        retry_delay = 1.0
-        
-        for attempt in range(max_retries + 1):
-            try:
-                response = model.generate_content(prompt)
-                analysis_text = response.text
-                
-                return {
-                    'analysis': analysis_text,
-                    'model': model_name,
-                    'provider': 'gemini',
-                    'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
-                }
+        while True:
+            # Rate limiting (best practice)
+            self.rate_limiter.wait_if_needed()
             
-            except Exception as e:
-                error_str = str(e).lower()
-                error_full = str(e)
+            # Configure Gemini with current key
+            genai.configure(api_key=self.api_key)
+            
+            # Use stable model with better rate limits (avoid experimental models on free tier)
+            # gemini-1.5-flash has better rate limits than experimental models
+            model_name = 'gemini-2.5-flash'
+            model = genai.GenerativeModel(model_name)
+            
+            # Generate response with retry logic for quota errors
+            max_retries = 2  # Reduced retries per key since we can switch keys
+            retry_delay = 1.0
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    response = model.generate_content(prompt)
+                    analysis_text = response.text
+                    
+                    # Success! Reset to first key for next call (round-robin)
+                    if self.current_key_index != original_key_index:
+                        print(f"✅ Success with API key #{self.current_key_index + 1}")
+                    self.current_key_index = 0
+                    self.api_key = self.api_keys[0]
+                    
+                    return {
+                        'analysis': analysis_text,
+                        'model': model_name,
+                        'provider': 'gemini',
+                        'tokens_used': None  # Gemini API doesn't always provide token usage in free tier
+                    }
                 
-                # Check for quota/rate limit errors
-                is_quota_error = (
-                    '429' in error_str or 
-                    'quota' in error_str or 
-                    'rate limit' in error_str or
-                    'exceeded' in error_str
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e).lower()
+                    error_full = str(e)
+                    
+                    # Check for quota/rate limit errors
+                    is_quota_error = (
+                        '429' in error_str or 
+                        'quota' in error_str or 
+                        'rate limit' in error_str or
+                        'exceeded' in error_str
+                    )
+                    
+                    if is_quota_error:
+                        # If we have multiple keys, try switching to the next one
+                        if len(self.api_keys) > 1 and self.current_key_index not in keys_tried:
+                            keys_tried.append(self.current_key_index)
+                            if self._switch_to_next_key():
+                                print(f"🔄 Switching to next API key due to rate limit (429 error)")
+                                break  # Break out of retry loop, try with new key
+                        
+                        # Extract retry delay from error if available
+                        import re
+                        import time
+                        
+                        # Try to extract retry delay from error message
+                        retry_match = re.search(r'retry.*?(\d+(?:\.\d+)?)\s*s', error_full, re.IGNORECASE)
+                        if retry_match:
+                            retry_delay = float(retry_match.group(1)) + 2.0  # Add 2 second buffer
+                        else:
+                            # Exponential backoff
+                            retry_delay = min(retry_delay * 2, 60.0)  # Max 60s
+                        
+                        if attempt < max_retries:
+                            wait_msg = (
+                                f"⚠️ Rate limit/quota exceeded on key #{self.current_key_index + 1}. "
+                                f"Retrying in {retry_delay:.1f}s (attempt {attempt + 1}/{max_retries + 1})..."
+                            )
+                            print(wait_msg)
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            # All retries exhausted for this key
+                            if len(self.api_keys) > 1 and self._switch_to_next_key():
+                                print(f"🔄 All retries exhausted for key #{self.current_key_index}, switching to next key")
+                                break  # Try with next key
+                            else:
+                                # No more keys available
+                                error_summary = error_full[:300] if len(error_full) > 300 else error_full
+                                raise ValueError(
+                                    f"❌ Gemini API quota/rate limit exceeded on all {len(self.api_keys)} key(s).\n\n"
+                                    f"**What happened:**\n"
+                                    f"All API keys have hit their rate limits.\n\n"
+                                    f"**Solutions:**\n"
+                                    f"1. Wait a few minutes and try again\n"
+                                    f"2. Check your quota usage: https://ai.dev/usage?tab=rate-limit\n"
+                                    f"3. Consider upgrading your API plan for higher limits\n"
+                                    f"4. Add more API keys (GEMINI_API_KEY_3, etc.)\n\n"
+                                    f"**Error details:** {error_summary}"
+                                )
+                    else:
+                        # Other errors - raise immediately
+                        raise
+            
+            # If we've tried all keys, raise error
+            if len(keys_tried) >= len(self.api_keys):
+                error_summary = str(last_error)[:300] if last_error and len(str(last_error)) > 300 else (str(last_error) if last_error else "Unknown error")
+                raise ValueError(
+                    f"❌ All {len(self.api_keys)} API key(s) failed. Last error:\n{error_summary}"
                 )
-                
-                if is_quota_error:
-                    # Extract retry delay from error if available
-                    import re
-                    import time
-                    
-                    # Try to extract retry delay from error message
-                    retry_match = re.search(r'retry.*?(\d+(?:\.\d+)?)\s*s', error_full, re.IGNORECASE)
-                    if retry_match:
-                        retry_delay = float(retry_match.group(1)) + 2.0  # Add 2 second buffer
-                    else:
-                        # Exponential backoff
-                        retry_delay = min(retry_delay * 2, 60.0)  # Max 60s
-                    
-                    if attempt < max_retries:
-                        wait_msg = (
-                            f"⚠️ Rate limit/quota exceeded. "
-                            f"Retrying in {retry_delay:.1f}s (attempt {attempt + 1}/{max_retries + 1})..."
-                        )
-                        print(wait_msg)
-                        time.sleep(retry_delay)
-                        continue
-                    else:
-                        # All retries exhausted - provide helpful error message
-                        error_summary = error_full[:300] if len(error_full) > 300 else error_full
-                        raise ValueError(
-                            f"❌ Gemini API quota/rate limit exceeded after {max_retries + 1} attempts.\n\n"
-                            f"**What happened:**\n"
-                            f"The free tier has rate limits on requests per minute. You've hit the limit.\n\n"
-                            f"**Solutions:**\n"
-                            f"1. Wait a few minutes and try again\n"
-                            f"2. Check your quota usage: https://ai.dev/usage?tab=rate-limit\n"
-                            f"3. Consider upgrading your API plan for higher limits\n"
-                            f"4. Use a stable model (gemini-1.5-flash) instead of experimental models\n\n"
-                            f"**Error details:** {error_summary}"
-                        )
-                else:
-                    # Other errors - raise immediately
-                    raise
     
     def analyze_contract(self, contract_text: str, n_standards: int = 5) -> Dict:
         """
