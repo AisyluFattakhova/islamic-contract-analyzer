@@ -642,17 +642,21 @@ def main():
         
         st.markdown("---")
         
-        # Question input
+        # Question input - use key to properly manage state
+        question_key = 'question_input'
+        if 'selected_question' in st.session_state:
+            # Set the question from example button click
+            st.session_state[question_key] = st.session_state.selected_question
+            # Clear selected_question after setting it
+            del st.session_state.selected_question
+        
         question = st.text_input(
             "Enter your question:",
-            value=st.session_state.get('selected_question', ''),
+            value=st.session_state.get(question_key, ''),
+            key=question_key,
             placeholder="e.g., What is Murabahah?",
             help="Ask any question about Shariaa Standards"
         )
-        
-        # Clear selected question after use
-        if 'selected_question' in st.session_state:
-            del st.session_state.selected_question
         
         # Answer button
         if st.button("🔍 Get Answer", type="primary", use_container_width=True):
