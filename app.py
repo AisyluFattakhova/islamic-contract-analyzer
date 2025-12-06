@@ -25,184 +25,138 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Set Islamic-inspired theme with greens, soft yellows, and golden accents
+# Set dark mode theme
 st.markdown("""
 <style>
-    /* Main app background - soft yellow/green sky */
+    /* Force dark mode */
     .stApp {
-        background: linear-gradient(135deg, #f5f8e8 0%, #f0f8e8 50%, #e8f5e8 100%);
+        background-color: #0e1117;
     }
     
-    /* Main content background - light mint green */
+    /* Main content background */
     .main .block-container {
-        background-color: #f0f8f0;
+        background-color: #1e1e1e;
         padding: 2rem;
-        border-radius: 0.5rem;
     }
     
-    /* Headers - dark forest green */
+    /* Headers */
     h1, h2, h3 {
-        color: #2d5016 !important;
+        color: #ffffff !important;
     }
     
-    /* Text - dark green for readability */
+    /* Text */
     p, li, div {
-        color: #1a3d0a !important;
+        color: #e0e0e0 !important;
     }
     
-    /* Cards and containers - mint green with golden border */
+    /* Cards and containers */
     .analysis-section {
-        background-color: #e8f5e8 !important;
+        background-color: #2d2d2d !important;
         padding: 1.5rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
-        color: #1a3d0a !important;
-        border: 2px solid #d4af37;
-        box-shadow: 0 2px 8px rgba(45, 80, 22, 0.1);
+        color: #e0e0e0 !important;
+        border: 1px solid #404040;
     }
     
     .standard-card {
-        background-color: #f0f8f0 !important;
+        background-color: #2d2d2d !important;
         padding: 1rem;
-        border-left: 4px solid #d4af37;
+        border-left: 4px solid #4a9eff;
         margin: 0.5rem 0;
         border-radius: 0.25rem;
-        color: #1a3d0a !important;
-        box-shadow: 0 1px 4px rgba(45, 80, 22, 0.1);
+        color: #e0e0e0 !important;
     }
     
-    /* Sidebar - light green */
+    /* Sidebar */
     .css-1d391kg {
-        background-color: #e8f5e8;
+        background-color: #1e1e1e;
     }
     
-    /* Input fields - light mint with green text */
+    /* Input fields */
     .stTextInput > div > div > input {
-        background-color: #f5f8f0;
-        color: #1a3d0a;
-        border: 1px solid #a8d5a8;
+        background-color: #2d2d2d;
+        color: #e0e0e0;
     }
     
     .stTextArea > div > div > textarea {
-        background-color: #f5f8f0;
-        color: #1a3d0a;
-        border: 1px solid #a8d5a8;
+        background-color: #2d2d2d;
+        color: #e0e0e0;
     }
     
-    /* Buttons - golden with dark green text */
+    /* Buttons */
     .stButton > button {
-        background-color: #d4af37;
-        color: #1a3d0a;
+        background-color: #4a9eff;
+        color: white;
         border: none;
-        font-weight: 600;
-        box-shadow: 0 2px 4px rgba(212, 175, 55, 0.3);
     }
     
     .stButton > button:hover {
-        background-color: #c9a028;
-        box-shadow: 0 4px 8px rgba(212, 175, 55, 0.4);
+        background-color: #3a8eef;
     }
     
-    /* Expanders - light green */
+    /* Expanders */
     .streamlit-expanderHeader {
-        background-color: #e8f5e8;
-        color: #2d5016;
-        border: 1px solid #a8d5a8;
+        background-color: #2d2d2d;
+        color: #e0e0e0;
     }
     
-    /* Metrics - golden values, dark green labels */
+    /* Metrics */
     [data-testid="stMetricValue"] {
-        color: #d4af37 !important;
+        color: #4a9eff !important;
     }
     
     [data-testid="stMetricLabel"] {
-        color: #2d5016 !important;
+        color: #b0b0b0 !important;
     }
     
-    /* Success/Error messages - green themed */
+    /* Success/Error messages */
     .stSuccess {
-        background-color: #e8f5e8;
-        color: #2d5016;
-        border-left: 4px solid #4a9e4a;
+        background-color: #1e3a1e;
+        color: #90ee90;
     }
     
     .stError {
-        background-color: #ffe8e8;
-        color: #8b1a1a;
-        border-left: 4px solid #cc4444;
+        background-color: #3a1e1e;
+        color: #ff6b6b;
     }
     
     .stWarning {
-        background-color: #fff8e8;
-        color: #8b6f1a;
-        border-left: 4px solid #d4af37;
+        background-color: #3a3a1e;
+        color: #ffd700;
     }
     
-    .stInfo {
-        background-color: #e8f0f8;
-        color: #1a3d0a;
-        border-left: 4px solid #4a9e4a;
-    }
-    
-    /* Radio buttons - light green */
+    /* Radio buttons */
     .stRadio > div {
-        background-color: #f0f8f0;
+        background-color: #2d2d2d;
     }
     
-    /* Selectbox - light green */
+    /* Selectbox */
     .stSelectbox > div > div > select {
-        background-color: #f5f8f0;
-        color: #1a3d0a;
-        border: 1px solid #a8d5a8;
+        background-color: #2d2d2d;
+        color: #e0e0e0;
     }
     
-    /* Tabs - green themed */
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        background-color: #e8f5e8;
-        border-bottom: 2px solid #a8d5a8;
+        background-color: #1e1e1e;
     }
     
     .stTabs [data-baseweb="tab"] {
-        color: #2d5016;
+        color: #b0b0b0;
     }
     
     .stTabs [aria-selected="true"] {
-        color: #d4af37;
-        border-bottom: 3px solid #d4af37;
+        color: #4a9eff;
     }
     
-    /* Main header - golden with dark green shadow */
+    /* Main header */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #d4af37;
+        color: #4a9eff;
         text-align: center;
         margin-bottom: 2rem;
-        text-shadow: 2px 2px 4px rgba(45, 80, 22, 0.3);
-    }
-    
-    /* Sidebar elements */
-    [data-testid="stSidebar"] {
-        background-color: #e8f5e8;
-    }
-    
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-        color: #1a3d0a;
-    }
-    
-    /* Slider */
-    .stSlider > div > div {
-        background-color: #a8d5a8;
-    }
-    
-    .stSlider > div > div > div {
-        background-color: #d4af37;
-    }
-    
-    /* File uploader */
-    .stFileUploader > div {
-        background-color: #f0f8f0;
-        border: 2px dashed #a8d5a8;
     }
 </style>
 """, unsafe_allow_html=True)
