@@ -386,7 +386,9 @@ def main():
     with st.sidebar:
         st.header("📖 About")
         st.markdown(
-            "This tool analyzes contracts for Shariah compliance using the **Gemini** model with **conversation memory**."
+            "An AI-powered platform for **Shariah compliance analysis** and **Islamic finance guidance**. "
+            "Leverages RAG technology to provide accurate, "
+            "context-aware analysis based on authoritative Shariaa Standards."
         )
         st.markdown("---")
         
